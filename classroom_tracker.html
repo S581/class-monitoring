@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Monitor — Score Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
+
+  :root {
+    --navy:    #1B2A4A;
+    --navy-mid:#243460;
+    --gold:    #E8A838;
+    --gold-lt: #FDF3DC;
+    --cream:   #F9F7F3;
+    --smoke:   #EAE8E4;
+    --ink:     #1A1A1A;
+    --muted:   #6B7280;
+    --green:   #2E7D52;
+    --green-lt:#E8F5EE;
+    --red:     #C0392B;
+    --red-lt:  #FDECEA;
+    --white:   #FFFFFF;
+    --radius:  10px;
+    --shadow:  0 4px 24px rgba(27,42,74,0.10);
+    --shadow-sm: 0 2px 8px rgba(27,42,74,0.07);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--cream); color: var(--ink); min-height: 100vh; font-size: 14px; }
+
+  /* TOAST */
+  #toast {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    background: var(--navy); color: #fff;
+    padding: 12px 20px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500; box-shadow: var(--shadow);
+    transform: translateY(-80px); opacity: 0;
+    transition: all .3s cubic-bezier(.34,1.56,.64,1); pointer-events: none;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.success { background: var(--green); }
+  #toast.error   { background: var(--red); }
+
+  /* LOADING SCREEN */
+  #loadingScreen {
+    position: fixed; inset: 0; background: var(--navy);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 500; transition: opacity .4s;
+  }
+  #loadingScreen.hide { opacity: 0; pointer-events: none; }
+  .loading-logo { font-size: 40px; margin-bottom: 14px; }
+  .loading-title { font-family: 'DM Serif Display', serif; font-size: 24px; color: var(--white); margin-bottom: 8px; }
+  .loading-sub { color: rgba(255,255,255,0.5); font-size: 13px; margin-bottom: 28px; }
+  .spinner {
+    width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: var(--gold); border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* PAGES */
+  .page { display: none; min-height: 100vh; }
+  .page.active { display: block; }
+
+  /* LOGIN */
+  #loginPage {
+    display: none; align-items: center; justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 60%, #2a3f7e 100%);
+    position: relative; overflow: hidden;
+  }
+  #loginPage.active { display: flex; }
+  .login-bg-accent  { position:absolute; width:500px; height:500px; border-radius:50%; background:rgba(232,168,56,0.07); top:-150px; right:-100px; pointer-events:none; }
+  .login-bg-accent2 { position:absolute; width:300px; height:300px; border-radius:50%; background:rgba(255,255,255,0.04); bottom:-80px; left:-60px; pointer-events:none; }
+  .login-card { background:var(--white); border-radius:18px; padding:48px 44px 40px; width:100%; max-width:400px; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative; z-index:1; }
+  .login-eyebrow { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--gold); font-weight:600; margin-bottom:8px; }
+  .login-title { font-family:'DM Serif Display',serif; font-size:28px; color:var(--navy); line-height:1.2; margin-bottom:6px; }
+  .login-sub { color:var(--muted); font-size:13px; margin-bottom:32px; }
+  .field-group { margin-bottom:18px; }
+  .field-group label { display:block; font-size:12px; font-weight:600; color:var(--navy); margin-bottom:6px; letter-spacing:.03em; }
+  .field-group input { width:100%; padding:11px 14px; border:1.5px solid var(--smoke); border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; color:var(--ink); background:var(--cream); transition:border-color .2s,box-shadow .2s; outline:none; }
+  .field-group input:focus { border-color:var(--navy); box-shadow:0 0 0 3px rgba(27,42,74,0.08); background:var(--white); }
+  .role-toggle { display:flex; gap:8px; margin-bottom:24px; }
+  .role-btn { flex:1; padding:9px; border:1.5px solid var(--smoke); border-radius:8px; background:var(--cream); font-family:'Inter',sans-serif; font-size:13px; font-weight:500; color:var(--muted); cursor:pointer; transition:all .2s; }
+  .role-btn.active { background:var(--navy); color:var(--white); border-color:var(--navy); }
+  .login-btn { width:100%; padding:13px; background:var(--gold); color:var(--navy); border:none; border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:opacity .2s,transform .15s; }
+  .login-btn:hover { opacity:.9; transform:translateY(-1px); }
+  .login-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .login-hint { margin-top:20px; padding:12px 14px; background:var(--gold-lt); border-radius:8px; font-size:12px; color:var(--navy); border-left:3px solid var(--gold); line-height:1.6; }
+  .login-hint strong { display:block; margin-bottom:4px; }
+
+  /* NAV */
+  .topnav { background:var(--navy); padding:0 28px; display:flex; align-items:center; justify-content:space-between; height:58px; box-shadow:0 2px 12px rgba(0,0,0,0.15); position:sticky; top:0; z-index:100; }
+  .topnav-brand { display:flex; align-items:center; gap:10px; }
+  .topnav-logo { width:32px; height:32px; background:var(--gold); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .topnav-name { font-family:'DM Serif Display',serif; font-size:18px; color:var(--white); }
+  .topnav-right { display:flex; align-items:center; gap:14px; }
+  .badge-role { background:rgba(232,168,56,0.18); color:var(--gold); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+  .logout-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.75); padding:6px 14px; border-radius:7px; font-size:12px; font-weight:500; cursor:pointer; font-family:'Inter',sans-serif; transition:background .2s; }
+  .logout-btn:hover { background:rgba(255,255,255,0.14); }
+
+  /* ADMIN */
+  #adminPage { background:var(--cream); }
+  .admin-inner { max-width:1100px; margin:0 auto; padding:32px 24px; }
+  .admin-header { margin-bottom:28px; }
+  .admin-header h1 { font-family:'DM Serif Display',serif; font-size:26px; color:var(--navy); margin-bottom:4px; }
+  .admin-header p { color:var(--muted); font-size:13px; }
+  .tabs { display:flex; gap:4px; background:var(--smoke); border-radius:10px; padding:4px; margin-bottom:28px; width:fit-content; }
+  .tab { padding:8px 20px; border-radius:7px; font-size:13px; font-weight:500; cursor:pointer; color:var(--muted); background:transparent; border:none; font-family:'Inter',sans-serif; transition:all .2s; }
+  .tab.active { background:var(--white); color:var(--navy); box-shadow:var(--shadow-sm); font-weight:600; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .stats-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:28px; }
+  .stat-card { background:var(--white); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); }
+  .stat-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-weight:600; margin-bottom:6px; }
+  .stat-value { font-size:28px; font-weight:700; color:var(--navy); font-family:'DM Serif Display',serif; }
+  .stat-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  .card { background:var(--white); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden; margin-bottom:20px; }
+  .card-head { padding:18px 22px; border-bottom:1px solid var(--smoke); display:flex; align-items:center; justify-content:space-between; }
+  .card-head h2 { font-size:15px; font-weight:600; color:var(--navy); }
+  .card-head p { font-size:12px; color:var(--muted); margin-top:2px; }
+  .tbl-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; padding:11px 16px; font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:var(--cream); border-bottom:1px solid var(--smoke); }
+  td { padding:12px 16px; border-bottom:1px solid var(--smoke); font-size:13px; vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:rgba(27,42,74,0.02); }
+  .student-name { font-weight:600; color:var(--navy); }
+  .student-num  { font-size:11px; color:var(--muted); }
+  .pts-badge { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; font-weight:700; font-size:14px; background:var(--gold-lt); color:var(--navy); }
+  .pts-badge.high { background:var(--green-lt); color:var(--green); }
+  .pts-badge.low  { background:var(--red-lt); color:var(--red); }
+  .score-input { width:64px; padding:6px 8px; border:1.5px solid var(--smoke); border-radius:6px; font-family:'Inter',sans-serif; font-size:13px; text-align:center; color:var(--ink); background:var(--cream); transition:border-color .2s; }
+  .score-input:focus { outline:none; border-color:var(--navy); background:var(--white); }
+  .btn { padding:7px 14px; border-radius:7px; font-family:'Inter',sans-serif; font-size:12px; font-weight:600; cursor:pointer; border:none; transition:opacity .2s,transform .15s; }
+  .btn:hover { opacity:.85; transform:translateY(-1px); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+  .btn-primary { background:var(--navy); color:var(--white); }
+  .btn-gold    { background:var(--gold); color:var(--navy); }
+  .btn-green   { background:var(--green); color:var(--white); }
+  .btn-danger  { background:var(--red); color:var(--white); }
+  .btn-ghost   { background:transparent; color:var(--navy); border:1.5px solid var(--smoke); }
+  .btn-sm { padding:5px 10px; font-size:11px; }
+  .btn-xs { padding:4px 8px; font-size:11px; }
+  .rec-controls { display:flex; align-items:center; gap:6px; }
+  .rec-inc { width:28px; height:28px; border-radius:6px; border:1.5px solid var(--smoke); background:var(--white); font-size:15px; font-weight:700; cursor:pointer; color:var(--navy); display:flex; align-items:center; justify-content:center; transition:background .15s; }
+  .rec-inc:hover { background:var(--gold-lt); }
+  .rec-dec:hover { background:var(--red-lt); }
+  .activity-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:700px) { .activity-grid { grid-template-columns:1fr; } }
+  .activity-tag { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:3px 8px; border-radius:4px; }
+  .tag-quiz { background:#EDE9FE; color:#5B21B6; }
+  .tag-seat { background:#DBEAFE; color:#1E40AF; }
+  .activity-title { font-size:14px; font-weight:600; color:var(--navy); margin-top:4px; }
+  .activity-max   { font-size:11px; color:var(--muted); }
+  .activity-scores-list { display:flex; flex-direction:column; gap:8px; }
+  .activity-score-row { display:flex; align-items:center; justify-content:space-between; font-size:13px; }
+  .activity-score-row span { color:var(--ink); font-weight:500; }
+  .add-bar { display:flex; gap:10px; align-items:flex-end; padding:16px 22px; background:var(--cream); border-bottom:1px solid var(--smoke); flex-wrap:wrap; }
+  .add-bar .modal-field { min-width:150px; }
+  .add-bar label { font-size:11px; font-weight:600; color:var(--navy); margin-bottom:4px; display:block; }
+  .add-bar input, .add-bar select { width:100%; padding:9px 12px; border:1.5px solid var(--smoke); border-radius:7px; font-family:'Inter',sans-serif; font-size:13px; background:var(--white); outline:none; }
+  .add-bar input:focus, .add-bar select:focus { border-color:var(--navy); }
+
+  /* STUDENT */
+  #studentPage { background:var(--cream); }
+  .student-inner { max-width:700px; margin:0 auto; padding:32px 24px; }
+  .student-header { display:flex; align-items:center; gap:16px; margin-bottom:28px; }
+  .student-avatar { width:52px; height:52px; border-radius:14px; background:var(--navy); display:flex; align-items:center; justify-content:center; font-size:22px; color:var(--white); font-family:'DM Serif Display',serif; font-weight:700; flex-shrink:0; }
+  .student-welcome { font-size:12px; color:var(--muted); margin-bottom:2px; }
+  .student-name-big { font-family:'DM Serif Display',serif; font-size:22px; color:var(--navy); }
+  .student-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px; }
+  .student-stat { background:var(--white); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow-sm); }
+  .activity-student-card { background:var(--white); border-radius:var(--radius); box-shadow:var(--shadow-sm); margin-bottom:14px; overflow:hidden; }
+  .activity-student-head { padding:14px 18px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--smoke); }
+  .activity-student-body { padding:16px 18px; }
+  .score-display { display:flex; align-items:center; gap:10px; }
+  .score-fraction { font-size:24px; font-weight:700; color:var(--navy); }
+  .score-fraction span { font-size:14px; color:var(--muted); font-weight:400; }
+  .score-pct { font-size:12px; padding:3px 8px; border-radius:5px; font-weight:600; }
+  .pct-high { background:var(--green-lt); color:var(--green); }
+  .pct-mid  { background:var(--gold-lt); color:#8a6200; }
+  .pct-low  { background:var(--red-lt); color:var(--red); }
+  .student-input-row { display:flex; align-items:center; gap:8px; margin-top:12px; }
+  .student-score-input { flex:1; padding:9px 12px; border:1.5px solid var(--smoke); border-radius:8px; font-family:'Inter',sans-serif; font-size:13px; color:var(--ink); background:var(--cream); }
+  .student-score-input:focus { outline:none; border-color:var(--navy); }
+  .rec-big { font-size:52px; font-family:'DM Serif Display',serif; color:var(--navy); line-height:1; }
+  .rec-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-weight:600; margin-top:4px; }
+  .empty-state { text-align:center; padding:40px 20px; color:var(--muted); }
+  .empty-state .emoji { font-size:36px; margin-bottom:10px; }
+  .empty-state p { font-size:13px; }
+  .db-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
+  .db-badge.live { background:#E8F5EE; color:var(--green); }
+  .db-badge.offline { background:var(--red-lt); color:var(--red); }
+
+  @media (max-width:600px) {
+    .login-card { padding:32px 22px; }
+    .admin-inner, .student-inner { padding:20px 14px; }
+    .topnav { padding:0 16px; }
+    .stats-row { grid-template-columns:1fr 1fr; }
+    .student-stats { grid-template-columns:1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- LOADING -->
+<div id="loadingScreen">
+  <div class="loading-logo">📋</div>
+  <div class="loading-title">ClassTrack</div>
+  <div class="loading-sub">Connecting to database…</div>
+  <div class="spinner"></div>
+</div>
+
+<!-- LOGIN -->
+<div id="loginPage" class="page">
+  <div class="login-bg-accent"></div>
+  <div class="login-bg-accent2"></div>
+  <div class="login-card">
+    <div class="login-eyebrow">Class Monitor System</div>
+    <h1 class="login-title">Welcome back 👋</h1>
+    <p class="login-sub">Sign in to view your recitation &amp; activity scores.</p>
+    <div class="role-toggle">
+      <button class="role-btn active" id="roleAdmin" onclick="setRole('admin')">🛡️ Admin</button>
+      <button class="role-btn" id="roleStudent" onclick="setRole('student')">🎒 Student</button>
+    </div>
+    <div class="field-group">
+      <label for="loginUser">Username</label>
+      <input type="text" id="loginUser" placeholder="Enter username" autocomplete="username" />
+    </div>
+    <div class="field-group">
+      <label for="loginPass">Password</label>
+      <input type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password" />
+    </div>
+    <button class="login-btn" id="loginBtn" onclick="doLogin()">Sign In</button>
+    <div class="login-hint">
+      <strong>Credentials</strong>
+      Students — use last name + their password
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div id="adminPage" class="page">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="topnav-logo">📋</div>
+      <span class="topnav-name">ClassTrack</span>
+    </div>
+    <div class="topnav-right">
+      <span id="dbBadge" class="db-badge live">● Live DB</span>
+      <span class="badge-role">Admin</span>
+      <button class="logout-btn" onclick="logout()">Log out</button>
+    </div>
+  </nav>
+  <div class="admin-inner">
+    <div class="admin-header">
+      <h1>Class Dashboard</h1>
+      <p>Manage recitation points and activity scores. All changes sync to Supabase instantly.</p>
+    </div>
+    <div class="stats-row" id="adminStats"></div>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('recitation')">Recitation Points</button>
+      <button class="tab" onclick="switchTab('activities')">Seatworks &amp; Quizzes</button>
+    </div>
+
+    <!-- Recitation Tab -->
+    <div id="tabRecitation" class="tab-panel active">
+      <div class="card">
+        <div class="add-bar">
+          <div class="modal-field">
+            <label>Student Name</label>
+            <input type="text" id="newStudentName" placeholder="e.g. Maria Santos" />
+          </div>
+          <div class="modal-field" style="max-width:130px">
+            <label>Student No.</label>
+            <input type="text" id="newStudentNum" placeholder="2024-001" />
+          </div>
+          <div class="modal-field" style="max-width:130px">
+            <label>Password</label>
+            <input type="text" id="newStudentPass" placeholder="password" />
+          </div>
+          <button class="btn btn-gold" id="addStudentBtn" onclick="addStudent()">+ Add Student</button>
+        </div>
+        <div class="card-head">
+          <div>
+            <h2>Recitation Points</h2>
+            <p>Use +/− to update each student's recitation count.</p>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Student</th><th>Points</th><th>Adjust</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="recBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activities Tab -->
+    <div id="tabActivities" class="tab-panel">
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-head">
+          <div><h2>Add Activity</h2><p>Create a seatwork or quiz for your class.</p></div>
+        </div>
+        <div class="add-bar">
+          <div class="modal-field" style="min-width:200px">
+            <label>Activity Name</label>
+            <input type="text" id="actName" placeholder="e.g. Quiz 1 — Chapter 3" />
+          </div>
+          <div class="modal-field" style="max-width:120px">
+            <label>Type</label>
+            <select id="actType">
+              <option value="quiz">Quiz</option>
+              <option value="seatwork">Seatwork</option>
+            </select>
+          </div>
+          <div class="modal-field" style="max-width:100px">
+            <label>Max Score</label>
+            <input type="number" id="actMax" placeholder="50" min="1" />
+          </div>
+          <button class="btn btn-primary" id="addActBtn" onclick="addActivity()">+ Add Activity</button>
+        </div>
+      </div>
+      <div id="activitiesGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- STUDENT -->
+<div id="studentPage" class="page">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="topnav-logo">📋</div>
+      <span class="topnav-name">ClassTrack</span>
+    </div>
+    <div class="topnav-right">
+      <span class="badge-role">Student</span>
+      <button class="logout-btn" onclick="logout()">Log out</button>
+    </div>
+  </nav>
+  <div class="student-inner">
+    <div class="student-header">
+      <div class="student-avatar" id="studentAvatar">?</div>
+      <div>
+        <div class="student-welcome">Signed in as</div>
+        <div class="student-name-big" id="studentNameBig">—</div>
+      </div>
+    </div>
+    <div class="student-stats">
+      <div class="student-stat">
+        <div class="stat-label">Recitation Points</div>
+        <div class="rec-big" id="studentRecPts">0</div>
+        <div class="rec-label">total earned</div>
+      </div>
+      <div class="student-stat">
+        <div class="stat-label">Activities Done</div>
+        <div class="rec-big" id="studentActCount">0</div>
+        <div class="rec-label">of <span id="studentActTotal">0</span> total</div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-head">
+        <div><h2>My Recitation</h2><p>Points awarded by your teacher or class monitor.</p></div>
+      </div>
+      <div style="padding:20px 22px; display:flex; align-items:center; gap:16px;">
+        <div style="font-size:48px; font-family:'DM Serif Display',serif; color:var(--navy); font-weight:700" id="studentRecBig">0</div>
+        <div style="color:var(--muted); font-size:13px">recitation<br>points</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Seatworks &amp; Quizzes</h2><p>Enter your scores — your teacher can verify them.</p></div>
+      </div>
+      <div style="padding:16px 18px" id="studentActivities"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL  = 'https://ucxxythaliocuqwvmgea.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjeHh5dGhhbGlvY3Vxd3ZtZ2VhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2ODA1NzYsImV4cCI6MjA5NzI1NjU3Nn0.kb3iJqDuYnIeXeuxLiwDTJ97T9EX8ggdZHd0WWF35jQ';
+const ADMIN_USER = 'admin';
+const ADMIN_PASS = 'admin123';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+/* ── STATE ── */
+let students   = [];
+let activities = [];
+let scores     = [];
+let currentRole    = 'admin';
+let currentStudent = null;
+
+/* ══════════════════════════════
+   INIT
+══════════════════════════════ */
+async function init() {
+  try {
+    await loadAll();
+    document.getElementById('loadingScreen').classList.add('hide');
+    setTimeout(() => document.getElementById('loadingScreen').style.display = 'none', 400);
+    showPage('loginPage');
+  } catch(e) {
+    document.querySelector('.loading-sub').textContent = 'Could not connect. Check your SQL setup.';
+    document.querySelector('.loading-sub').style.color = '#f87171';
+    console.error(e);
+  }
+}
+
+async function loadAll() {
+  const [s, a, sc] = await Promise.all([
+    sb.from('students').select('*').order('created_at'),
+    sb.from('activities').select('*').order('created_at'),
+    sb.from('scores').select('*'),
+  ]);
+  if (s.error)  throw s.error;
+  if (a.error)  throw a.error;
+  if (sc.error) throw sc.error;
+  students   = s.data  || [];
+  activities = a.data  || [];
+  scores     = sc.data || [];
+}
+
+/* ══════════════════════════════
+   AUTH
+══════════════════════════════ */
+function setRole(r) {
+  currentRole = r;
+  document.getElementById('roleAdmin').classList.toggle('active', r === 'admin');
+  document.getElementById('roleStudent').classList.toggle('active', r === 'student');
+}
+
+async function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value.trim();
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  try {
+    if (currentRole === 'admin') {
+      if (u === ADMIN_USER && p === ADMIN_PASS) {
+        await loadAll();
+        showPage('adminPage');
+        renderAdmin();
+        toast('Welcome, Admin! 🛡️', 'success');
+      } else {
+        toast('Incorrect admin credentials.', 'error');
+      }
+    } else {
+      // match by first name or full name
+      const st = students.find(s =>
+        s.name.toLowerCase().split(' ')[0] === u.toLowerCase() ||
+        s.name.toLowerCase() === u.toLowerCase()
+      );
+      if (st && st.pass === p) {
+        currentStudent = st;
+        await loadAll();
+        showPage('studentPage');
+        renderStudent();
+        toast(`Welcome, ${st.name.split(' ')[0]}! 🎒`, 'success');
+      } else {
+        toast('Student not found or wrong password.', 'error');
+      }
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+
+function logout() {
+  currentStudent = null;
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  showPage('loginPage');
+  toast('Logged out successfully.');
+}
+
+/* ══════════════════════════════
+   PAGES
+══════════════════════════════ */
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+/* ══════════════════════════════
+   TOAST
+══════════════════════════════ */
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type ? `show ${type}` : 'show';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 2600);
+}
+
+/* ══════════════════════════════
+   ADMIN RENDER
+══════════════════════════════ */
+function renderAdmin() {
+  renderAdminStats();
+  renderRecTable();
+  renderActivitiesGrid();
+}
+
+function renderAdminStats() {
+  const total    = students.length;
+  const totalRec = students.reduce((a, s) => a + (s.recitation || 0), 0);
+  const avgRec   = total ? (totalRec / total).toFixed(1) : 0;
+  const top      = total ? [...students].sort((a,b) => (b.recitation||0)-(a.recitation||0))[0].name.split(' ')[0] : '—';
+  document.getElementById('adminStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total Students</div><div class="stat-value">${total}</div><div class="stat-sub">enrolled</div></div>
+    <div class="stat-card"><div class="stat-label">Avg Recitation</div><div class="stat-value">${avgRec}</div><div class="stat-sub">pts per student</div></div>
+    <div class="stat-card"><div class="stat-label">Activities</div><div class="stat-value">${activities.length}</div><div class="stat-sub">seatworks &amp; quizzes</div></div>
+    <div class="stat-card"><div class="stat-label">Top Reciter</div><div class="stat-value" style="font-size:18px;padding-top:4px">${top}</div><div class="stat-sub">highest points</div></div>
+  `;
+}
+
+function renderRecTable() {
+  const tbody = document.getElementById('recBody');
+  if (!students.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="emoji">👥</div><p>No students yet. Add one above.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = students.map((s, i) => {
+    const pts = s.recitation || 0;
+    const cls = pts >= 8 ? 'high' : pts <= 2 ? 'low' : '';
+    return `<tr>
+      <td style="color:var(--muted);font-size:12px">${i+1}</td>
+      <td><div class="student-name">${s.name}</div><div class="student-num">${s.num || '—'}</div></td>
+      <td><span class="pts-badge ${cls}">${pts}</span></td>
+      <td>
+        <div class="rec-controls">
+          <button class="rec-inc rec-dec" onclick="adjRec('${s.id}', -1)">−</button>
+          <input class="score-input" type="number" value="${pts}" min="0"
+            onchange="setRecDirect('${s.id}', this.value)" style="width:54px" />
+          <button class="rec-inc" onclick="adjRec('${s.id}', +1)">+</button>
+        </div>
+      </td>
+      <td><button class="btn btn-danger btn-xs" onclick="removeStudent('${s.id}')">Remove</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderActivitiesGrid() {
+  const grid = document.getElementById('activitiesGrid');
+  if (!activities.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="emoji">📝</div><p>No activities yet. Add one above.</p></div>';
+    return;
+  }
+  grid.innerHTML = `<div class="activity-grid">${activities.map(act => {
+    const tagCls = act.type === 'quiz' ? 'tag-quiz' : 'tag-seat';
+    return `<div class="card" style="margin-bottom:0">
+      <div class="card-head" style="align-items:flex-start">
+        <div>
+          <span class="activity-tag ${tagCls}">${act.type}</span>
+          <div class="activity-title">${act.name}</div>
+          <div class="activity-max">Max: ${act.max} pts</div>
+        </div>
+        <button class="btn btn-danger btn-xs" onclick="removeActivity('${act.id}')">✕</button>
+      </div>
+      <div style="padding:14px 16px">
+        <div class="activity-scores-list">
+          ${students.map(s => {
+            const sc = scores.find(x => x.student_id === s.id && x.activity_id === act.id);
+            const val = sc ? sc.score : '';
+            const pct = val !== '' && val !== null ? Math.round((val / act.max)*100) : null;
+            return `<div class="activity-score-row">
+              <span>${s.name.split(' ')[0]}</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input class="score-input" type="number" value="${val !== null ? val : ''}"
+                  min="0" max="${act.max}" placeholder="—"
+                  onchange="setScore('${act.id}','${s.id}',this.value)" />
+                ${pct !== null ? `<span style="font-size:11px;color:var(--muted)">${pct}%</span>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+          ${!students.length ? '<p style="color:var(--muted);font-size:12px">No students yet.</p>' : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+/* ══════════════════════════════
+   ADMIN ACTIONS
+══════════════════════════════ */
+async function adjRec(id, delta) {
+  const s = students.find(x => x.id === id);
+  if (!s) return;
+  const newVal = Math.max(0, (s.recitation || 0) + delta);
+  const { error } = await sb.from('students').update({ recitation: newVal }).eq('id', id);
+  if (error) { toast('Failed to update.', 'error'); return; }
+  s.recitation = newVal;
+  renderAdmin();
+  toast(`${s.name.split(' ')[0]}: ${newVal} pts`, 'success');
+}
+
+async function setRecDirect(id, val) {
+  const newVal = Math.max(0, parseInt(val) || 0);
+  const { error } = await sb.from('students').update({ recitation: newVal }).eq('id', id);
+  if (error) { toast('Failed to update.', 'error'); return; }
+  const s = students.find(x => x.id === id);
+  if (s) s.recitation = newVal;
+  renderAdminStats();
+  toast('Points updated.', 'success');
+}
+
+async function addStudent() {
+  const name = document.getElementById('newStudentName').value.trim();
+  const num  = document.getElementById('newStudentNum').value.trim();
+  const pass = document.getElementById('newStudentPass').value.trim();
+  if (!name) { toast('Enter a student name.', 'error'); return; }
+  if (students.find(s => s.name.toLowerCase() === name.toLowerCase())) {
+    toast('Student already exists.', 'error'); return;
+  }
+  const btn = document.getElementById('addStudentBtn');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  const { data, error } = await sb.from('students')
+    .insert({ name, num: num || null, pass: pass || 'student123', recitation: 0 })
+    .select().single();
+  btn.disabled = false; btn.textContent = '+ Add Student';
+  if (error) { toast('Failed to add student.', 'error'); console.error(error); return; }
+  students.push(data);
+  renderAdmin();
+  document.getElementById('newStudentName').value = '';
+  document.getElementById('newStudentNum').value = '';
+  document.getElementById('newStudentPass').value = '';
+  toast(`${name} added! 🎉`, 'success');
+}
+
+async function removeStudent(id) {
+  const s = students.find(x => x.id === id);
+  if (!confirm(`Remove ${s?.name}?`)) return;
+  const { error } = await sb.from('students').delete().eq('id', id);
+  if (error) { toast('Failed to remove.', 'error'); return; }
+  students = students.filter(x => x.id !== id);
+  scores   = scores.filter(x => x.student_id !== id);
+  renderAdmin();
+  toast('Student removed.');
+}
+
+async function addActivity() {
+  const name = document.getElementById('actName').value.trim();
+  const type = document.getElementById('actType').value;
+  const max  = parseInt(document.getElementById('actMax').value) || 0;
+  if (!name) { toast('Enter an activity name.', 'error'); return; }
+  if (max < 1){ toast('Max score must be at least 1.', 'error'); return; }
+  const btn = document.getElementById('addActBtn');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  const { data, error } = await sb.from('activities')
+    .insert({ name, type, max })
+    .select().single();
+  btn.disabled = false; btn.textContent = '+ Add Activity';
+  if (error) { toast('Failed to add activity.', 'error'); console.error(error); return; }
+  activities.push(data);
+  renderAdmin();
+  document.getElementById('actName').value = '';
+  document.getElementById('actMax').value = '';
+  toast(`"${name}" added! 📝`, 'success');
+  switchTab('activities');
+}
+
+async function removeActivity(id) {
+  const a = activities.find(x => x.id === id);
+  if (!confirm(`Remove "${a?.name}"?`)) return;
+  const { error } = await sb.from('activities').delete().eq('id', id);
+  if (error) { toast('Failed to remove.', 'error'); return; }
+  activities = activities.filter(x => x.id !== id);
+  scores     = scores.filter(x => x.activity_id !== id);
+  renderActivitiesGrid();
+  renderAdminStats();
+  toast('Activity removed.');
+}
+
+async function setScore(actId, studentId, val) {
+  const act = activities.find(a => a.id === actId);
+  const numVal = val === '' ? null : Math.min(Math.max(parseInt(val) || 0, 0), act?.max || 9999);
+  const existing = scores.find(x => x.activity_id === actId && x.student_id === studentId);
+
+  let error;
+  if (existing) {
+    if (numVal === null) {
+      ({ error } = await sb.from('scores').delete().eq('id', existing.id));
+      if (!error) scores = scores.filter(x => x.id !== existing.id);
+    } else {
+      ({ error } = await sb.from('scores').update({ score: numVal }).eq('id', existing.id));
+      if (!error) existing.score = numVal;
+    }
+  } else if (numVal !== null) {
+    const { data, error: e } = await sb.from('scores')
+      .insert({ activity_id: actId, student_id: studentId, score: numVal })
+      .select().single();
+    error = e;
+    if (!error) scores.push(data);
+  }
+
+  if (error) { toast('Failed to save score.', 'error'); console.error(error); return; }
+  toast('Score saved. ✅', 'success');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) =>
+    t.classList.toggle('active', ['recitation','activities'][i] === name));
+  document.getElementById('tabRecitation').classList.toggle('active', name === 'recitation');
+  document.getElementById('tabActivities').classList.toggle('active', name === 'activities');
+}
+
+/* ══════════════════════════════
+   STUDENT RENDER
+══════════════════════════════ */
+function renderStudent() {
+  const s = currentStudent;
+  // Refresh from latest loaded students
+  const fresh = students.find(x => x.id === s.id);
+  if (fresh) currentStudent = fresh;
+  const st = currentStudent;
+
+  const first = st.name.split(' ')[0];
+  document.getElementById('studentAvatar').textContent = first[0].toUpperCase();
+  document.getElementById('studentNameBig').textContent = st.name;
+  document.getElementById('studentRecPts').textContent = st.recitation || 0;
+  document.getElementById('studentRecBig').textContent = st.recitation || 0;
+
+  const myScores = scores.filter(x => x.student_id === st.id);
+  document.getElementById('studentActCount').textContent = myScores.length;
+  document.getElementById('studentActTotal').textContent = activities.length;
+
+  const container = document.getElementById('studentActivities');
+  if (!activities.length) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">📚</div><p>No activities posted yet. Check back later!</p></div>';
+    return;
+  }
+
+  container.innerHTML = activities.map((act, ai) => {
+    const sc = scores.find(x => x.student_id === st.id && x.activity_id === act.id);
+    const hasScore = sc && sc.score !== null;
+    const pct = hasScore ? Math.round((sc.score / act.max) * 100) : null;
+    const pctClass = pct === null ? '' : pct >= 80 ? 'pct-high' : pct >= 60 ? 'pct-mid' : 'pct-low';
+    const tagCls = act.type === 'quiz' ? 'tag-quiz' : 'tag-seat';
+    return `
+    <div class="activity-student-card">
+      <div class="activity-student-head">
+        <div>
+          <span class="activity-tag ${tagCls}">${act.type}</span>
+          <div style="font-weight:600;color:var(--navy);font-size:14px;margin-top:4px">${act.name}</div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--muted)">Out of ${act.max}</div>
+      </div>
+      <div class="activity-student-body">
+        ${hasScore ? `
+          <div class="score-display">
+            <div class="score-fraction">${sc.score}<span> / ${act.max}</span></div>
+            <span class="score-pct ${pctClass}">${pct}%</span>
+          </div>` : `<div style="color:var(--muted);font-size:13px;margin-bottom:8px">No score yet.</div>`}
+        <div class="student-input-row" style="margin-top:${hasScore ? '10px' : '0'}">
+          <input class="student-score-input" type="number" min="0" max="${act.max}"
+            placeholder="Your score (0–${act.max})"
+            value="${hasScore ? sc.score : ''}"
+            id="stuInput_${ai}" />
+          <button class="btn btn-green btn-sm" onclick="submitStudentScore('${act.id}', ${ai})">Save</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function submitStudentScore(actId, ai) {
+  const st  = currentStudent;
+  const inp = document.getElementById(`stuInput_${ai}`);
+  const val = inp.value.trim();
+  const act = activities.find(a => a.id === actId);
+  const numVal = val === '' ? null : Math.min(Math.max(parseInt(val)||0,0), act?.max||9999);
+  const existing = scores.find(x => x.activity_id === actId && x.student_id === st.id);
+
+  let error;
+  if (existing) {
+    if (numVal === null) {
+      ({ error } = await sb.from('scores').delete().eq('id', existing.id));
+      if (!error) scores = scores.filter(x => x.id !== existing.id);
+    } else {
+      ({ error } = await sb.from('scores').update({ score: numVal }).eq('id', existing.id));
+      if (!error) existing.score = numVal;
+    }
+  } else if (numVal !== null) {
+    const { data, error: e } = await sb.from('scores')
+      .insert({ activity_id: actId, student_id: st.id, score: numVal })
+      .select().single();
+    error = e;
+    if (!error) scores.push(data);
+  }
+
+  if (error) { toast('Failed to save.', 'error'); console.error(error); return; }
+  renderStudent();
+  toast(numVal !== null ? `Saved: ${numVal} / ${act.max} ✅` : 'Score cleared.', 'success');
+}
+
+/* ══════════════════════════════
+   KEYBOARD
+══════════════════════════════ */
+document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
+document.getElementById('loginUser').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('loginPass').focus(); });
+
+init();
+</script>
+</body>
+</html>
