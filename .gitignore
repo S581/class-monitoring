@@ -1,0 +1,8 @@
+# ── Secrets ──────────────────────────────────────────────────
+# Contains Supabase URL + anon key. Never commit this.
+config.js
+
+# ── OS / editor junk ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp

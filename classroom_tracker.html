@@ -4,7 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Class Monitor — Score Tracker</title>
+
+<!--
+  ┌─────────────────────────────────────────────────────────┐
+  │  SECRETS ARE IN config.js  (excluded from git)          │
+  │  Copy config.example.js → config.js and fill it in.     │
+  └─────────────────────────────────────────────────────────┘
+-->
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
 
@@ -195,6 +204,18 @@
   .db-badge.live { background:#E8F5EE; color:var(--green); }
   .db-badge.offline { background:var(--red-lt); color:var(--red); }
 
+  /* CONFIG ERROR */
+  #configError {
+    display:none; position:fixed; inset:0; background:var(--navy);
+    align-items:center; justify-content:center; z-index:999; flex-direction:column;
+    padding:24px; text-align:center;
+  }
+  #configError.show { display:flex; }
+  .cfg-box { background:var(--white); border-radius:16px; padding:36px 32px; max-width:480px; }
+  .cfg-box h2 { font-family:'DM Serif Display',serif; color:var(--navy); font-size:22px; margin-bottom:10px; }
+  .cfg-box p  { color:var(--muted); font-size:13px; line-height:1.7; margin-bottom:14px; }
+  .cfg-box code { background:var(--cream); border-radius:6px; padding:2px 7px; font-size:12px; color:var(--red); }
+
   @media (max-width:600px) {
     .login-card { padding:32px 22px; }
     .admin-inner, .student-inner { padding:20px 14px; }
@@ -207,6 +228,18 @@
 <body>
 
 <div id="toast"></div>
+
+<!-- CONFIG MISSING ERROR -->
+<div id="configError">
+  <div class="cfg-box">
+    <h2>⚙️ config.js missing</h2>
+    <p>
+      Copy <code>config.example.js</code> to <code>config.js</code>, fill in your
+      Supabase URL and anon key, then reload the page.<br><br>
+      <strong>config.js is listed in .gitignore</strong> — it will never be committed.
+    </p>
+  </div>
+</div>
 
 <!-- LOADING -->
 <div id="loadingScreen">
@@ -239,7 +272,7 @@
     <button class="login-btn" id="loginBtn" onclick="doLogin()">Sign In</button>
     <div class="login-hint">
       <strong>Credentials</strong>
-      Students — use last name + their password
+      Students — use your last name + your password
     </div>
   </div>
 </div>
@@ -386,10 +419,19 @@
 </div>
 
 <script>
-const SUPABASE_URL  = 'https://ucxxythaliocuqwvmgea.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjeHh5dGhhbGlvY3Vxd3ZtZ2VhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2ODA1NzYsImV4cCI6MjA5NzI1NjU3Nn0.kb3iJqDuYnIeXeuxLiwDTJ97T9EX8ggdZHd0WWF35jQ';
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = 'admin123';
+/* ══════════════════════════════
+   CONFIG CHECK
+   Secrets live in config.js (gitignored).
+   window.ENV is set there.
+══════════════════════════════ */
+if (!window.ENV || !window.ENV.SUPABASE_URL || !window.ENV.SUPABASE_ANON) {
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('configError').classList.add('show');
+  throw new Error('config.js missing or incomplete. See config.example.js.');
+}
+
+const SUPABASE_URL  = window.ENV.SUPABASE_URL;
+const SUPABASE_ANON = window.ENV.SUPABASE_ANON;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
@@ -432,6 +474,10 @@ async function loadAll() {
 
 /* ══════════════════════════════
    AUTH
+   Admin credentials are stored in the `admins` table in Supabase,
+   NOT hardcoded here. Schema: { username text, password_hash text }
+   For simplicity this version compares plaintext — see README for
+   how to use pgcrypto for bcrypt hashing if you want extra security.
 ══════════════════════════════ */
 function setRole(r) {
   currentRole = r;
@@ -447,7 +493,17 @@ async function doLogin() {
 
   try {
     if (currentRole === 'admin') {
-      if (u === ADMIN_USER && p === ADMIN_PASS) {
+      // ── Look up admin in Supabase, not in client code ──
+      const { data, error } = await sb
+        .from('admins')
+        .select('username')
+        .eq('username', u)
+        .eq('password', p)   // store hashed in production; see README
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
         await loadAll();
         showPage('adminPage');
         renderAdmin();
@@ -456,7 +512,7 @@ async function doLogin() {
         toast('Incorrect admin credentials.', 'error');
       }
     } else {
-      // match by first name or full name
+      // ── Student login (unchanged) ──
       const st = students.find(s =>
         s.name.toLowerCase().split(' ')[0] === u.toLowerCase() ||
         s.name.toLowerCase() === u.toLowerCase()
@@ -471,6 +527,9 @@ async function doLogin() {
         toast('Student not found or wrong password.', 'error');
       }
     }
+  } catch(e) {
+    console.error(e);
+    toast('Login error. Check console.', 'error');
   } finally {
     btn.disabled = false; btn.textContent = 'Sign In';
   }
@@ -720,7 +779,6 @@ function switchTab(name) {
 ══════════════════════════════ */
 function renderStudent() {
   const s = currentStudent;
-  // Refresh from latest loaded students
   const fresh = students.find(x => x.id === s.id);
   if (fresh) currentStudent = fresh;
   const st = currentStudent;
